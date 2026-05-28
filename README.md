@@ -12,3 +12,12 @@ source venv/bin/activate
 ```bash
 pip install confluent-kafka
 ```
+
+# Hacer contenedor con Kafka en Docker
+
+```bash
+services:
+  kafka:
+    image: apache/kafka:latest
+    container_name: kafka-server
+```
