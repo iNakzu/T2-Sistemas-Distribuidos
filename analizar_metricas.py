@@ -44,7 +44,7 @@ p50 = df_exitosos["latency_ms"].quantile(0.50) if not df_exitosos.empty else 0
 p95 = df_exitosos["latency_ms"].quantile(0.95) if not df_exitosos.empty else 0
 
 print("-" * 45)
-print("\nMetricas: ")
+print("Metricas: ")
 print(f"Archivo analizado: {archivo}")
 print(f"Total eventos registrados: {total_intentos}")
 print(f"Consultas completadas con éxito: {total_exitosos}")
