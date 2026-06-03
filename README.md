@@ -225,10 +225,11 @@ type resultados\04_reintentos_sin_dlq.txt
 type resultados\05_spike_trafico.txt
 ```
 
+## Verificación final
+
+Se revisó la documentación final del proyecto y se verificó que los resultados experimentales se encuentren respaldados en la carpeta `resultados/`.
+
 ## Video de demostración
 
 Link del video: Pendiente de agregar.
 
-## Repositorio
-
-https://github.com/iNakzu/T2-Sistemas-Distribuidos
