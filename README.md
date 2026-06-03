@@ -231,5 +231,5 @@ Se revisó la documentación final del proyecto y se verificó que los resultado
 
 ## Video de demostración
 
-Link del video: Pendiente de agregar.
+Link del video: [Video](https://youtu.be/T9RXCZHUcSs)
 
