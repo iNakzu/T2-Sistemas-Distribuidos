@@ -1,71 +1,234 @@
-# Tarea 2: Procesamiento y Fallback con Apache Kafka
+# Tarea 2 - Sistemas Distribuidos: Procesamiento y Fallback con Apache Kafka
 
-Este repositorio contiene la implementación de una arquitectura asíncrona y orientada a eventos. Utiliza **Apache Kafka** como *broker* de mensajería para desacoplar la ingesta de peticiones, **Redis** como sistema de caché (política LRU) y una flota escalable de consumidores para el procesamiento geoespacial implementado en la Tarea 1.
+Este repositorio presenta la segunda entrega de la Tarea 2 de Sistemas Distribuidos. El sistema evoluciona desde una solución principalmente síncrona con caché Redis hacia una arquitectura asíncrona basada en Apache Kafka, con consumidores paralelos, reintentos, recuperación ante fallos y una DLQ contemplada en el diseño.
 
-## 1. Estructura y Evolución del Proyecto
+## Integrantes
 
-Para esta segunda entrega, la arquitectura síncrona original fue modificada para soportar un flujo asíncrono y tolerante a fallos. Los principales cambios en el repositorio son:
+- Ignacio Antiguay
+- Benjamín Guzmán
 
-* **`consumer_service/` (NUEVO):** Es el núcleo de la Tarea 2. Contiene los Consumidores Kafka que actúan como *workers*. Estos leen los mensajes del tópico principal, verifican las respuestas en el caché y manejan toda la lógica de reintentos, rescate de fallos y derivación a la *Dead Letter Queue* (DLQ).
-* **`traffic_generator/` (MODIFICADO):** Su rol cambió por completo. Dejó de hacer peticiones HTTP directas al backend y se transformó en un *Kafka Producer* que inyecta las consultas de forma asíncrona al sistema.
-* **`analizar_metricas.py` (NUEVO):** Script diseñado específicamente para leer el archivo `metrics.csv` y calcular las nuevas métricas requeridas: *Retry rate*, *Recovery rate*, *DLQ rate* y el tamaño del *Backlog*.
-* **`docker-compose.yml` (MODIFICADO):** Actualizado para orquestar la nueva infraestructura compleja, levantando simultáneamente Zookeeper, Kafka, Redis y todos los microservicios.
-* **`response_generator/` y `data/` (REUTILIZADOS):** Mantienen la lógica de cálculo geoespacial de la Tarea 1. Siguen actuando como el motor principal de respuestas, pero ahora son consultados exclusivamente por los consumidores en caso de un *cache miss*.
+## Descripción general
 
-## 2. Configuración Inicial del Entorno
+La solución organiza el procesamiento de consultas geoespaciales de la siguiente forma:
 
-Para evitar conflictos con otras dependencias del sistema, se recomienda levantar un entorno virtual de Python para el análisis de métricas.
+- `traffic_generator` actúa como productor de consultas y las publica en Kafka.
+- Apache Kafka funciona como cola principal de entrada.
+- `consumer_service` contiene los consumidores Kafka que procesan las consultas.
+- Redis se usa como sistema de caché para responder rápido cuando ya existe una respuesta almacenada.
+- `response_generator` resuelve los cache misses generando la respuesta geoespacial.
+- `metrics/metrics.csv` registra los eventos y latencias observadas durante cada experimento.
+- `analizar_metricas.py` procesa el CSV y resume los resultados de las ejecuciones.
 
-    python3 -m venv venv
-    source venv/bin/activate
-    pip install confluent-kafka pandas
+## Flujo del sistema
 
-## 3. Despliegue de la Infraestructura
+1. `traffic_generator` crea consultas Q1 a Q5 con distribución uniforme o Zipf.
+2. Cada consulta se publica en Kafka en el tópico principal.
+3. Los consumidores de `consumer_service` leen los mensajes desde Kafka.
+4. Cada consumidor consulta Redis con la clave asociada a la consulta.
+5. Si existe un cache hit, la respuesta se entrega directamente desde caché.
+6. Si ocurre un cache miss, el consumidor llama a `response_generator` para resolver la consulta.
+7. Si `response_generator` falla temporalmente, la consulta se envía a reintento.
+8. Si se supera el máximo de reintentos, el diseño contempla el envío a DLQ.
+9. Todas las métricas relevantes se registran en formato CSV para su análisis posterior.
 
-La arquitectura está dockerizada e incluye Zookeeper, Kafka, Redis, el Generador de Tráfico, el Generador de Respuestas y el Servicio Consumidor.
+## Tecnologías
 
-    docker compose up -d --build
+- Python
+- FastAPI
+- Apache Kafka
+- Redis
+- Docker
+- Docker Compose
+- Pandas
+- NumPy
+- CSV
 
-## 4. Protocolo Estricto de Limpieza (Obligatorio)
+## Estructura del proyecto
 
-Para garantizar la validez científica de los experimentos y evitar la contaminación de datos (caché heredado), ejecuta siempre estos comandos antes de iniciar cualquier prueba:
+```text
+.
+├── consumer_service/
+├── traffic_generator/
+├── response_generator/
+├── metrics/
+├── resultados/
+├── analizar_metricas.py
+├── docker-compose.yml
+└── README.md
+```
 
-    > metrics/metrics.csv
-    docker compose exec redis redis-cli FLUSHALL
+## Requisitos previos
 
-## 5. Escenarios de Prueba
+- Docker Desktop instalado y en ejecución.
+- Docker Compose disponible.
+- Python 3 instalado.
+- Git instalado.
+- Se recomienda usar VS Code con terminal PowerShell.
 
-A continuación, se detallan los comandos para replicar los cuatro escenarios experimentales definidos en el informe técnico.
+## Comandos para levantar el sistema
 
-### Escenario A: Procesamiento Estándar (1 Consumer)
-Asegúrate de tener solo un trabajador activo procesando la carga.
+```powershell
+docker compose up -d --scale consumer_service=1
+docker ps
+```
 
-    docker compose up -d --scale consumer_service=1
-    curl -X POST http://localhost:8002/run -H "Content-Type: application/json" -d '{"distribution": "uniform", "n_requests": 500}'
+## Limpieza antes de cada experimento
 
-### Escenario B: Escalamiento Horizontal (Múltiples Consumers)
-Demuestra cómo Kafka balancea las particiones entre varios trabajadores para reducir latencias.
+Antes de ejecutar cada escenario, el repositorio debe quedar limpio para evitar arrastrar métricas o contenido de caché de pruebas anteriores.
 
-    docker compose up -d --scale consumer_service=3
-    curl -X POST http://localhost:8002/run -H "Content-Type: application/json" -d '{"distribution": "uniform", "n_requests": 500}'
+```powershell
+Clear-Content metrics\metrics.csv
+docker compose exec redis redis-cli FLUSHALL
+```
 
-### Escenario C: Tolerancia a Fallos (Caída del Backend)
-Prueba la resiliencia del sistema, el encolamiento en el tópico de reintentos y la política de la DLQ.
+## Cómo enviar consultas en PowerShell
 
-    docker stop response_generator
-    curl -X POST http://localhost:8002/run -H "Content-Type: application/json" -d '{"distribution": "uniform", "n_requests": 500}'
-    
-    # Esperar unos minutos para observar el backlog de reintentos...
-    
-    docker start response_generator
+En Windows se debe usar `Invoke-RestMethod` y no `curl`, para mantener la compatibilidad con PowerShell.
 
-### Escenario D: Spike de Tráfico masivo (Estrés del Caché)
-Somete el sistema a una ráfaga masiva con alta repetición de datos para evaluar la resiliencia bajo sobrecarga.
+### Ejemplo uniforme
 
-    curl -X POST http://localhost:8002/run -H "Content-Type: application/json" -d '{"distribution": "zipf", "n_requests": 5000}'
+```powershell
+$body = @{
+    distribution = "uniform"
+    n_requests = 500
+} | ConvertTo-Json
 
-## 6. Análisis de Resultados
+Invoke-RestMethod -Uri "http://localhost:8002/run" -Method POST -ContentType "application/json" -Body $body
+```
 
-Una vez finalizada cualquier prueba, puedes extraer el throughput, percentiles de latencia (p50, p95), tasas de acierto/fallo en caché y efectividad de los reintentos ejecutando el analizador sobre el archivo CSV:
+### Ejemplo Zipf
 
-    python3 analizar_metricas.py metrics/metrics.csv
+```powershell
+$body = @{
+    distribution = "zipf"
+    n_requests = 5000
+} | ConvertTo-Json
+
+Invoke-RestMethod -Uri "http://localhost:8002/run" -Method POST -ContentType "application/json" -Body $body
+```
+
+## Cómo analizar métricas
+
+```powershell
+python analizar_metricas.py metrics\metrics.csv
+```
+
+El script entrega los siguientes indicadores:
+
+- Total de eventos
+- Consultas completadas
+- Hits
+- Misses
+- Recuperados tras fallo
+- Enviados a reintento
+- Enviados a DLQ
+- Retry rate
+- Recovery rate
+- DLQ rate
+- Latencia promedio
+- p50
+- p95
+
+## Escenarios experimentales
+
+### a) Kafka con 1 consumer
+
+```powershell
+docker compose up -d --scale consumer_service=1
+$body = @{
+    distribution = "uniform"
+    n_requests = 500
+} | ConvertTo-Json
+
+Invoke-RestMethod -Uri "http://localhost:8002/run" -Method POST -ContentType "application/json" -Body $body
+```
+
+### b) Kafka con 3 consumers
+
+```powershell
+docker compose up -d --scale consumer_service=3
+$body = @{
+    distribution = "uniform"
+    n_requests = 500
+} | ConvertTo-Json
+
+Invoke-RestMethod -Uri "http://localhost:8002/run" -Method POST -ContentType "application/json" -Body $body
+```
+
+### c) Falla temporal
+
+```powershell
+docker compose stop response_generator
+$body = @{
+    distribution = "uniform"
+    n_requests = 500
+} | ConvertTo-Json
+
+Invoke-RestMethod -Uri "http://localhost:8002/run" -Method POST -ContentType "application/json" -Body $body
+docker compose start response_generator
+```
+
+### d) Falla prolongada / DLQ no activada experimentalmente
+
+```powershell
+docker compose stop response_generator
+$body = @{
+    distribution = "uniform"
+    n_requests = 243
+} | ConvertTo-Json
+
+Invoke-RestMethod -Uri "http://localhost:8002/run" -Method POST -ContentType "application/json" -Body $body
+```
+
+En esta prueba la configuración no activó mensajes en DLQ durante la ejecución registrada.
+
+### e) Spike de tráfico con Zipf y 5000 consultas
+
+```powershell
+$body = @{
+    distribution = "zipf"
+    n_requests = 5000
+} | ConvertTo-Json
+
+Invoke-RestMethod -Uri "http://localhost:8002/run" -Method POST -ContentType "application/json" -Body $body
+```
+
+## Resultados principales
+
+Los siguientes resultados corresponden a las ejecuciones registradas en el repositorio:
+
+| Escenario | Eventos | Éxito | Hits Caché | Misses | Retry Rate | Recovery Rate | DLQ Rate | Latencia Prom. | p50 | p95 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Kafka + 1 Consumer | 500 | 500 | 394 / 78.8% | 106 / 21.2% | 0.0% | 0% | 0.0% | 2.52 ms | 0.62 ms | 11.06 ms |
+| Kafka + 3 Consumers | 500 | 500 | 397 / 79.4% | 103 / 20.6% | 0.0% | 0% | 0.0% | 2.20 ms | 0.61 ms | 10.17 ms |
+| Falla temporal | 500 | 490 | 386 / 78.78% | 104 / 21.22% | 2.0% | 0.0% | 0.0% | 2.55 ms | 0.66 ms | 11.62 ms |
+| Reintentos + recuperación | 140 | 110 | 54 / 49.09% | 37 / 33.64% | 21.43% | 38.78% | 0.0% | 4.09 ms | 3.30 ms | 14.11 ms |
+| Falla prolongada / DLQ no activada | 243 | 0 | 0 / 0% | 0 / 0% | 100.0% | 0.0% | 0.0% | 0 ms | 0 ms | 0 ms |
+| Spike tráfico Zipf | 5000 | 5000 | 4885 / 97.7% | 115 / 2.3% | 0.0% | 0% | 0.0% | 0.90 ms | 0.47 ms | 2.30 ms |
+
+## Interpretación general
+
+Los resultados muestran que Kafka permitió desacoplar la generación de consultas del procesamiento. Con 3 consumidores se observa una mejora leve frente a 1 consumidor, sobre todo en latencia promedio y percentiles.
+
+En la falla temporal se registraron reintentos, mientras que en el escenario de recuperación se observaron consultas recuperadas tras fallo. En la falla prolongada se alcanzó un 100% de retry rate, pero no se activó DLQ en las pruebas ejecutadas.
+
+La DLQ se considera implementada y contemplada en el diseño, pero no se registraron mensajes en DLQ bajo esta configuración experimental. En el escenario de spike con distribución Zipf se alcanzó un 97.7% de hits y se completaron 5000 consultas sin pérdida.
+
+## Comandos útiles para video
+
+```powershell
+docker ps
+docker compose logs consumer_service --tail=50
+type resultados\02_kafka_3_consumers.txt
+type resultados\03_falla_temporal.txt
+type resultados\04_reintentos_sin_dlq.txt
+type resultados\05_spike_trafico.txt
+```
+
+## Video de demostración
+
+Link del video: Pendiente de agregar.
+
+## Repositorio
+
+https://github.com/iNakzu/T2-Sistemas-Distribuidos
