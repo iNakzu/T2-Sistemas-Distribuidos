@@ -1,0 +1,20 @@
+---------------------------------------------
+Metricas: 
+Archivo analizado: metrics\metrics.csv
+Total eventos registrados: 500
+Consultas completadas con éxito: 500
+---------------------------------------------
+Hits en Caché: 397 (79.4%)
+Misses directos: 103 (20.6%)
+Recuperados tras fallo: 0
+Enviados a Reintento: 0
+Enviados a DLQ (Pérdida): 0
+---------------------------------------------
+Retry rate: 0.0%
+Recovery rate: 0%
+DLQ rate: 0.0%
+---------------------------------------------
+Latencia promedio: 2.2 ms
+Latencia p50: 0.61 ms
+Latencia p95: 10.17 ms
+---------------------------------------------
